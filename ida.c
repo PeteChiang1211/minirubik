@@ -296,42 +296,44 @@ static uint32_t nodes;        // 記錄總共檢查了幾個節點
  * bound:     這一輪的步數上限
  * last_face: 上一步轉的是哪一面（-1 代表還沒轉過）
  * 回傳 1 代表找到解，0 代表這條路走不通 */
-static int dfs(uint16_t p, uint16_t o, int g, int bound, int last_face)
+static int dfs(uint16_t p, uint16_t o, uint8_t c0, uint8_t c1,
+               int g, int bound, int last_face)
 {
     nodes++;
-
-    /* 小抄估計：兩張表取較大值，保證不會高估 */
-    int h = perm_dist[p];
+    int h = pattern_dist[p * 9 + (c0 % 3) * 3 + (c1 % 3)];   // 新指南針
     if (orient_dist[o] > h)
         h = orient_dist[o];
-
-    /* 已走步數 + 至少還要幾步 > 上限，這條路不可能在上限內解完，放棄 */
-    if (g + h > bound)
-        return 0;
-
-    /* 小抄說還要 0 步，代表已經解好了 */
-    if (h == 0)
-        return 1;
-
+    if (g + h > bound) return 0;
+    if (h == 0) return 1;
     for (int face = 0; face < 3; face++) {
-        /* 同一面連轉兩次一定不是最短解，跳過 */
-        if (face == last_face)
-            continue;
-
+        if (face == last_face) continue;
         uint16_t np = p, no = o;
+        uint8_t n0 = c0, n1 = c1;
         for (int turn = 0; turn < 3; turn++) {
-            /* 每多轉 90 度，就再查一次對照表：
-             * turn = 0 是轉 90 度，1 是 180 度，2 是 270 度 */
             np = permutation[face][np];
             no = orientation[face][no];
+            n0 = cubie_move[face][n0];
+            n1 = cubie_move[face][n1];
             path[g] = (uint8_t) (face * 3 + turn);
-
-            /* 往下走一步：步數 +1，這一面變成下一層的「上一面」 */
-            if (dfs(np, no, g + 1, bound, face))
-                return 1;
+            if (dfs(np, no, n0, n1, g + 1, bound, face)) return 1;
         }
     }
     return 0;
+}
+
+/* 給一個狀態編號 r，用 IDA* 解，回傳最短步數（路線存在 path） */
+static int solve(uint32_t r)
+{
+    state_t s;
+    unrank_state(r, &s);                       // 編號變回完整方塊
+    uint16_t p = (uint16_t) (r / ORIENTATIONS);
+    uint16_t o = (uint16_t) (r % ORIENTATIONS);
+    uint8_t c0 = cubie_coord(&s, 0);           // 角 0 一開始的編號
+    uint8_t c1 = cubie_coord(&s, 1);           // 角 1 一開始的編號
+    int bound = 0;
+    while (!dfs(p, o, c0, c1, 0, bound, -1))
+        bound++;
+    return bound;
 }
 
 static uint8_t *exact;   // 標準答案：每個狀態真正的最短步數
@@ -381,31 +383,41 @@ static void build_pattern_dist(void)
     }
 }
 
+/* 在電腦上準備所有表 */
+static void prepare(void)
+{
+    build_transitions();
+    build_perm_dist();
+    build_orient_dist();
+    build_cubie_move();
+    build_exact_dist();
+    build_pattern_dist();
+}
+
 static int verify(void)
 {
-    build_exact_dist();
     uint32_t h1_bad = 0, h3_bad = 0;
 
     for (uint32_t r = 0; r < STATES; r++) {
         if (r % 500000 == 0)
-            fprintf(stderr, "checked %u states...\n", r);   // 顯示進度
+            fprintf(stderr, "checked %u states...\n", r);
 
+        state_t s;
+        unrank_state(r, &s);
         uint16_t p = (uint16_t) (r / ORIENTATIONS);
         uint16_t o = (uint16_t) (r % ORIENTATIONS);
+        uint8_t c0 = cubie_coord(&s, 0);
+        uint8_t c1 = cubie_coord(&s, 1);
 
-        /* H1：指南針不能估太多 */
-        int h = perm_dist[p];
+        /* H1：新的指南針不能估太多 */
+        int h = pattern_dist[p * 9 + (c0 % 3) * 3 + (c1 % 3)];
         if (orient_dist[o] > h)
             h = orient_dist[o];
         if (h > exact[r])
             h1_bad++;
 
-        /* H3：用 IDA* 解這個房間 */
-        int len = 0;
-        while (!dfs(p, o, 0, len, -1))
-            len++;
-
-        /* 照著 path 真的走一遍 */
+        /* H3：用 IDA* 解，再照著 path 走一遍 */
+        int len = solve(r);
         uint16_t cp = p, co = o;
         for (int i = 0; i < len; i++) {
             int face = path[i] / 3;
@@ -421,28 +433,19 @@ static int verify(void)
 
     printf("H1 violations: %u\n", h1_bad);
     printf("H3 failures:   %u\n", h3_bad);
-    free(exact);
     return h1_bad || h3_bad;
 }
 
 static void measure(void)
 {
-    build_exact_dist();
     uint32_t count = 0, worst = 0, worst_r = 0, over = 0;
     uint64_t total = 0;
 
     for (uint32_t r = 0; r < STATES; r++) {
         if (exact[r] != 11)
             continue;
-
-        uint16_t p = (uint16_t) (r / ORIENTATIONS);
-        uint16_t o = (uint16_t) (r % ORIENTATIONS);
-
         nodes = 0;
-        int bound = 0;
-        while (!dfs(p, o, 0, bound, -1))
-            bound++;
-
+        solve(r);
         count++;
         total += nodes;
         if (nodes > worst) {
@@ -457,7 +460,6 @@ static void measure(void)
     printf("average nodes:      %llu\n", (unsigned long long) (total / count));
     printf("worst nodes:        %u (rank %u)\n", worst, worst_r);
     printf("over 250,000:       %u\n", over);
-    free(exact);
 }
 
 static uint8_t *build_table(uint8_t *diameter)
@@ -592,80 +594,25 @@ static int self_test(void)
 int main(int argc, char **argv)
 {
     state_t state;
-    if (argc == 2 && strcmp(argv[1], "--pattern") == 0) {
-        build_transitions();
-        build_exact_dist();
-        build_pattern_dist();
-        int unfilled = 0, max = 0;
-        for (int i = 0; i < PERMUTATIONS * 9; i++) {
-            if (pattern_dist[i] == UINT8_MAX) unfilled++;
-            else if (pattern_dist[i] > max) max = pattern_dist[i];
-        }
-        printf("pattern table: solved = %d, max = %d, unfilled = %d\n",
-               pattern_dist[0], max, unfilled);
-        free(exact);
-        return 0;
-    }
 
-        if (argc == 2 && strcmp(argv[1], "--cubie") == 0) {
-        build_cubie_move();
-        int bad = 0;
-        for (int face = 0; face < 3; face++)
-            for (int c = 0; c < 21; c++) {
-                int x = c;
-                for (int k = 0; k < 4; k++)
-                    x = cubie_move[face][x];
-                if (x != c)
-                    bad++;
-            }
-        printf("R: pos 1 ori 0 -> code %d (expect 1)\n", cubie_move[0][3]);
-        printf("turn 4 times, not back: %d\n", bad);
-        return 0;
+    if (argc == 2 && strcmp(argv[1], "--verify") == 0) {
+        prepare();
+        return verify();
     }
-        if (argc == 2 && strcmp(argv[1], "--nodes") == 0) {
-        build_transitions();
-        build_perm_dist();
-        build_orient_dist();
+    if (argc == 2 && strcmp(argv[1], "--nodes") == 0) {
+        prepare();
         measure();
         return 0;
     }
-        if (argc == 2 && strcmp(argv[1], "--verify") == 0) {
-        build_transitions();
-        build_perm_dist();
-        build_orient_dist();
-        return verify();
-    }
-        if (argc == 2 && strcmp(argv[1], "--exact") == 0) {
-        build_transitions();
-        build_exact_dist();
-        uint32_t count[12] = {0}, unfilled = 0;
-        for (uint32_t r = 0; r < STATES; r++) {
-            if (exact[r] > 11) unfilled++;
-            else count[exact[r]]++;
-        }
-        for (int d = 0; d < 12; d++)
-            printf("distance %2d: %u\n", d, count[d]);
-        printf("unfilled: %u\n", unfilled);
-        return 0;
-    }
     if (argc != 2 || !parse_state(argv[1], &state)) {
-        fprintf(stderr, "usage: %s PPPPPPPOOOOOOO\n", argv[0]);
+        fprintf(stderr, "usage: %s PPPPPPPOOOOOOO | --verify | --nodes\n", argv[0]);
         return 2;
     }
 
-    build_transitions();
-    build_perm_dist();
-    build_orient_dist();
-
-    uint32_t rank = rank_state(&state);              // 把輸入的方塊轉成編號
-    uint16_t p = (uint16_t) (rank / ORIENTATIONS);   // 拆出位置編號
-    uint16_t o = (uint16_t) (rank % ORIENTATIONS);   // 拆出方向編號
-
-    int bound = 0;
-    while (!dfs(p, o, 0, bound, -1))                 // 這一輪沒找到解
-        bound = bound + 1;                                // 上限要變成多少？
-
-    for (int i = 0; i < bound; i++)                  // 印出解法
+    prepare();
+    nodes = 0;
+    int len = solve(rank_state(&state));
+    for (int i = 0; i < len; i++)
         printf("%s%s", i ? " " : "", move_names[path[i]]);
     printf("\n");
     fprintf(stderr, "nodes: %u\n", nodes);
