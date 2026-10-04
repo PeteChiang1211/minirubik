@@ -209,6 +209,31 @@ static void build_transitions(void)
         }
     }
 }
+static uint8_t perm_dist[PERMUTATIONS];
+
+static void build_perm_dist(void)
+{
+    uint16_t queue[PERMUTATIONS];
+    uint16_t head = 0, tail = 1;
+
+    memset(perm_dist, UINT8_MAX, PERMUTATIONS);   // 全部標成「還沒算過」
+    queue[0] = 0;                              // 從已解好開始
+    perm_dist[0] = 0 ;                          // 已解好是幾步？
+
+    while (head < tail) {
+        uint16_t here = queue[head++];
+        for (uint8_t face = 0; face < 3; ++face) {
+            uint16_t next = here;
+            for (uint8_t turn = 0; turn < 3; ++turn) {
+                next = permutation[face][next];   // 再轉 90 度
+                if (perm_dist[next] == UINT8_MAX) {
+                    perm_dist[next] =perm_dist[here] + 1;       // 新狀態是幾步？
+                    queue[tail++] = next;
+                }
+            }
+        }
+    }
+}
 
 static uint8_t *build_table(uint8_t *diameter)
 {
@@ -341,6 +366,20 @@ static int self_test(void)
 
 int main(int argc, char **argv)
 {
+    build_transitions();              
+    build_perm_dist();
+
+    int unfilled = 0;
+    uint8_t max = 0;
+    for (int i = 0; i < PERMUTATIONS; i++) {
+        if (perm_dist[i] == UINT8_MAX)
+            unfilled++;
+        else if (perm_dist[i] > max)
+            max = perm_dist[i];
+    }
+    printf("perm: solved=%d max=%d unfilled=%d\n", perm_dist[0], max, unfilled);
+    return 0;
+
     state_t state;
     uint8_t diameter;
     if (argc == 2 && !strcmp(argv[1], "--self-test")) {
