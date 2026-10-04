@@ -384,6 +384,41 @@ static int verify(void)
     return h1_bad || h3_bad;
 }
 
+static void measure(void)
+{
+    build_exact_dist();
+    uint32_t count = 0, worst = 0, worst_r = 0, over = 0;
+    uint64_t total = 0;
+
+    for (uint32_t r = 0; r < STATES; r++) {
+        if (exact[r] != 11)
+            continue;
+
+        uint16_t p = (uint16_t) (r / ORIENTATIONS);
+        uint16_t o = (uint16_t) (r % ORIENTATIONS);
+
+        nodes = 0;
+        int bound = 0;
+        while (!dfs(p, o, 0, bound, -1))
+            bound++;
+
+        count++;
+        total += nodes;
+        if (nodes > worst) {
+            worst = nodes;
+            worst_r = r;
+        }
+        if (nodes > 250000)
+            over++;
+    }
+
+    printf("distance-11 states: %u\n", count);
+    printf("average nodes:      %llu\n", (unsigned long long) (total / count));
+    printf("worst nodes:        %u (rank %u)\n", worst, worst_r);
+    printf("over 250,000:       %u\n", over);
+    free(exact);
+}
+
 static uint8_t *build_table(uint8_t *diameter)
 {
     uint8_t *toward_solved = malloc(STATES);
@@ -516,6 +551,13 @@ static int self_test(void)
 int main(int argc, char **argv)
 {
     state_t state;
+        if (argc == 2 && strcmp(argv[1], "--nodes") == 0) {
+        build_transitions();
+        build_perm_dist();
+        build_orient_dist();
+        measure();
+        return 0;
+    }
         if (argc == 2 && strcmp(argv[1], "--verify") == 0) {
         build_transitions();
         build_perm_dist();
@@ -555,6 +597,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < bound; i++)                  // 印出解法
         printf("%s%s", i ? " " : "", move_names[path[i]]);
     printf("\n");
+    fprintf(stderr, "nodes: %u\n", nodes);
     return 0;
 }
 
