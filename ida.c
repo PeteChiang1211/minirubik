@@ -261,6 +261,31 @@ static void build_orient_dist(void)
     }
 }
 
+static uint8_t cubie_move[3][21];   // 跟著一個角：轉一下之後，新的編號
+
+static void build_cubie_move(void)
+{
+    for (int face = 0; face < 3; face++)
+        for (int pos = 0; pos < CUBIES; pos++)
+            for (int ori = 0; ori < 3; ori++) {
+                int to = 0;
+                while (source[face][to] != pos)
+                    to++;
+                int nori = (ori + twist[face][to]) % 3;
+                cubie_move[face][pos * 3 + ori] = (uint8_t) (to * 3 + nori);
+            }
+}
+
+/* 從一個完整的 state 找出某個角的編號（位置 × 3 + 方向） */
+static uint8_t cubie_coord(const state_t *s, int cubie)
+{
+    int pos = 0;
+    while (s->p[pos] != cubie)
+        pos++;
+    return (uint8_t) (pos * 3 + s->o[pos]);
+}
+
+
 static uint8_t path[12];      // 記錄目前走了哪些轉法
 static uint32_t nodes;        // 記錄總共檢查了幾個節點
 
@@ -551,6 +576,21 @@ static int self_test(void)
 int main(int argc, char **argv)
 {
     state_t state;
+        if (argc == 2 && strcmp(argv[1], "--cubie") == 0) {
+        build_cubie_move();
+        int bad = 0;
+        for (int face = 0; face < 3; face++)
+            for (int c = 0; c < 21; c++) {
+                int x = c;
+                for (int k = 0; k < 4; k++)
+                    x = cubie_move[face][x];
+                if (x != c)
+                    bad++;
+            }
+        printf("R: pos 1 ori 0 -> code %d (expect 1)\n", cubie_move[0][3]);
+        printf("turn 4 times, not back: %d\n", bad);
+        return 0;
+    }
         if (argc == 2 && strcmp(argv[1], "--nodes") == 0) {
         build_transitions();
         build_perm_dist();
