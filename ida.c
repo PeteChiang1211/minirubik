@@ -287,51 +287,70 @@ static uint8_t cubie_coord(const state_t *s, int cubie)
 }
 
 
-static uint8_t path[12];      // 記錄目前走了哪些轉法
+static int8_t path[12];      // 記錄目前走了哪些轉法
 static uint32_t nodes;        // 記錄總共檢查了幾個節點
 
-/* IDA* 的深度優先搜尋
- * p, o:      目前狀態的位置編號、方向編號
- * g:         已經走了幾步
- * bound:     這一輪的步數上限
- * last_face: 上一步轉的是哪一面（-1 代表還沒轉過）
- * 回傳 1 代表找到解，0 代表這條路走不通 */
-static int dfs(uint16_t p, uint16_t o, uint8_t c0, uint8_t c1,
-               int g, int bound, int last_face)
+/* IDA* 搜尋（不用遞迴，自己用筆記本記每一層）
+ * bound: 這一輪的步數上限
+ * 回傳 1 代表找到解（路線在 path），0 代表這一輪找不到 */
+static uint16_t sp[12], so[12];   // 筆記本：每一層的位置、方向
+static uint8_t s0[12], s1[12];    // 筆記本：每一層的角 0、角 1
+
+static int search(int bound)
 {
+    int g = 0, h, m, face;
+
+enter:                                  /* 走進第 g 層的房間 */
     nodes++;
-    int h = pattern_dist[p * 9 + (c0 % 3) * 3 + (c1 % 3)];   // 新指南針
-    if (orient_dist[o] > h)
-        h = orient_dist[o];
-    if (g + h > bound) return 0;
-    if (h == 0) return 1;
-    for (int face = 0; face < 3; face++) {
-        if (face == last_face) continue;
-        uint16_t np = p, no = o;
-        uint8_t n0 = c0, n1 = c1;
-        for (int turn = 0; turn < 3; turn++) {
-            np = permutation[face][np];
-            no = orientation[face][no];
-            n0 = cubie_move[face][n0];
-            n1 = cubie_move[face][n1];
-            path[g] = (uint8_t) (face * 3 + turn);
-            if (dfs(np, no, n0, n1, g + 1, bound, face)) return 1;
-        }
+    h = pattern_dist[sp[g] * 9 + (s0[g] % 3) * 3 + (s1[g] % 3)];
+    if (orient_dist[so[g]] > h)
+        h = orient_dist[so[g]];
+    if (g + h > bound)
+        goto back;
+    if (h == 0)
+        return 1;
+    path[g] = -1;                       /* 這一層還沒試任何門 */
+
+next:                                   /* 試第 g 層的下一扇門 */
+    m = path[g] + 1;
+    if (m == 9)
+        goto back;
+    face = m / 3;
+    if (g > 0 && face == path[g - 1] / 3) {
+        path[g] = (int8_t) (face * 3 + 2);   /* 跟上一步同一面：整個面跳過 */
+        goto next;
     }
-    return 0;
+    if (m % 3 == 0) {                 /* 這個面的第一扇門 */
+        sp[g + 1] = sp[g];              /* 從第 g 層的狀態出發 */
+        so[g + 1] = so[g];
+        s0[g + 1] = s0[g];
+        s1[g + 1] = s1[g];
+    }
+    sp[g + 1] = permutation[face][sp[g + 1]];   /* 再轉 90 度 */
+    so[g + 1] = orientation[face][so[g + 1]];
+    s0[g + 1] = cubie_move[face][s0[g + 1]];
+    s1[g + 1] = cubie_move[face][s1[g + 1]];
+    path[g] = (int8_t) m;
+    g++;
+    goto enter;                          /* 走進下一層，先看指南針 */
+
+back:                                   /* 這間走不通，退回上一層 */
+    if (g == 0)
+        return 0;
+    g--;                               
+    goto next;                          /* 回到上一層，試它的下一扇門 */
 }
 
-/* 給一個狀態編號 r，用 IDA* 解，回傳最短步數（路線存在 path） */
 static int solve(uint32_t r)
 {
     state_t s;
-    unrank_state(r, &s);                       // 編號變回完整方塊
-    uint16_t p = (uint16_t) (r / ORIENTATIONS);
-    uint16_t o = (uint16_t) (r % ORIENTATIONS);
-    uint8_t c0 = cubie_coord(&s, 0);           // 角 0 一開始的編號
-    uint8_t c1 = cubie_coord(&s, 1);           // 角 1 一開始的編號
+    unrank_state(r, &s);
+    sp[0] = (uint16_t) (r / ORIENTATIONS);   /* 筆記本第 0 行：起點 */
+    so[0] = (uint16_t) (r % ORIENTATIONS);
+    s0[0] = cubie_coord(&s, 0);
+    s1[0] = cubie_coord(&s, 1);
     int bound = 0;
-    while (!dfs(p, o, c0, c1, 0, bound, -1))
+    while (!search(bound))
         bound++;
     return bound;
 }
