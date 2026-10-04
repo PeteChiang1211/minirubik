@@ -261,7 +261,7 @@ static void build_orient_dist(void)
     }
 }
 
-static uint8_t cubie_move[3][21];   // 跟著一個角：轉一下之後，新的編號
+static uint8_t cubie_move[3][28];   // 跟著一個角：轉一下之後，新的編號
 static uint8_t pattern_dist[PERMUTATIONS * 9];   // 新小抄：位置 + 角 0、角 1 的方向
 
 static void build_cubie_move(void)
@@ -273,7 +273,7 @@ static void build_cubie_move(void)
                 while (source[face][to] != pos)
                     to++;
                 int nori = (ori + twist[face][to]) % 3;
-                cubie_move[face][pos * 3 + ori] = (uint8_t) (to * 3 + nori);
+                cubie_move[face][pos * 4 + ori] = (uint8_t) (to * 4 + nori);
             }
 }
 
@@ -283,7 +283,7 @@ static uint8_t cubie_coord(const state_t *s, int cubie)
     int pos = 0;
     while (s->p[pos] != cubie)
         pos++;
-    return (uint8_t) (pos * 3 + s->o[pos]);
+    return (uint8_t) (pos * 4 + s->o[pos]);
 }
 
 
@@ -296,49 +296,62 @@ static uint32_t nodes;        // 記錄總共檢查了幾個節點
 static uint16_t sp[12], so[12];   // 筆記本：每一層的位置、方向
 static uint8_t s0[12], s1[12];    // 筆記本：每一層的角 0、角 1
 
+static const uint16_t *const perm_row[3] = {permutation[0], permutation[1], permutation[2]};
+static const uint16_t *const orient_row[3] = {orientation[0], orientation[1], orientation[2]};
+static const uint8_t *const cubie_row[3] = {cubie_move[0], cubie_move[1], cubie_move[2]};
+
 static int search(int bound)
 {
-    int g = 0, h, m, face;
+    int g = 0, h, m, face, ori0, ori1;
+    const uint16_t *pr, *orr;
+    const uint8_t *cr;
 
 enter:                                  /* 走進第 g 層的房間 */
     nodes++;
-    h = pattern_dist[sp[g] * 9 + (s0[g] % 3) * 3 + (s1[g] % 3)];
+    ori0 = s0[g] & 3;                   /* ① 角 0 的方向 */
+    ori1 = s1[g] & 3;                   /* ① 角 1 的方向 */
+    h = pattern_dist[(sp[g] << 3) + sp[g] + (ori0 << 1) + ori0 + ori1];   /* ② */
     if (orient_dist[so[g]] > h)
         h = orient_dist[so[g]];
     if (g + h > bound)
         goto back;
     if (h == 0)
         return 1;
-    path[g] = -1;                       /* 這一層還沒試任何門 */
+    path[g] = -1;
 
 next:                                   /* 試第 g 層的下一扇門 */
     m = path[g] + 1;
-    if (m == 9)
+    if ((m & 3) == 3)                /* 碰到空著的那一格 */
+        m++;
+    if (m == 12)                      /* 三個面都試完了 */
         goto back;
-    face = m / 3;
-    if (g > 0 && face == path[g - 1] / 3) {
-        path[g] = (int8_t) (face * 3 + 2);   /* 跟上一步同一面：整個面跳過 */
+    face = m >> 2;                    /* 空格 3：算出是哪個面 */
+    if (g > 0 && face == (path[g - 1] >> 2)) {
+        path[g] = (int8_t) ((face << 2) + 2);   /* 同一面：跳到這面最後一扇門 */
         goto next;
     }
-    if (m % 3 == 0) {                 /* 這個面的第一扇門 */
-        sp[g + 1] = sp[g];              /* 從第 g 層的狀態出發 */
+    if ((m & 3) == 0) {                 /* 這個面的第一扇門 */
+        sp[g + 1] = sp[g];
         so[g + 1] = so[g];
         s0[g + 1] = s0[g];
         s1[g + 1] = s1[g];
     }
-    sp[g + 1] = permutation[face][sp[g + 1]];   /* 再轉 90 度 */
-    so[g + 1] = orientation[face][so[g + 1]];
-    s0[g + 1] = cubie_move[face][s0[g + 1]];
-    s1[g + 1] = cubie_move[face][s1[g + 1]];
+    pr = perm_row[face];                /* ④ 這個面的表起點 */
+    orr = orient_row[face];
+    cr = cubie_row[face];
+    sp[g + 1] = pr[sp[g + 1]];
+    so[g + 1] = orr[so[g + 1]];
+    s0[g + 1] = cr[s0[g + 1]];
+    s1[g + 1] = cr[s1[g + 1]];
     path[g] = (int8_t) m;
     g++;
-    goto enter;                          /* 走進下一層，先看指南針 */
+    goto enter;
 
 back:                                   /* 這間走不通，退回上一層 */
     if (g == 0)
         return 0;
-    g--;                               
-    goto next;                          /* 回到上一層，試它的下一扇門 */
+    g--;
+    goto next;
 }
 
 static int solve(uint32_t r)
@@ -394,8 +407,8 @@ static void build_pattern_dist(void)
         state_t s;
         unrank_state(r, &s);                        // 把編號 r 變回完整的方塊
         uint16_t p = (uint16_t) (r / ORIENTATIONS);
-        int ori0 = cubie_coord(&s, 0) % 3;          // 角 0 的方向
-        int ori1 = cubie_coord(&s, 1) % 3;          // 角 1 的方向
+        int ori0 = cubie_coord(&s, 0) & 3;        // 角 0 的方向
+        int ori1 = cubie_coord(&s, 1) & 3;         // 角 1 的方向
         uint32_t cell = p * 9 + ori0 * 3 + ori1;    // 這個狀態屬於哪一格
         if (exact[r] < pattern_dist[cell])
             pattern_dist[cell] = exact[r];
@@ -429,7 +442,7 @@ static int verify(void)
         uint8_t c1 = cubie_coord(&s, 1);
 
         /* H1：新的指南針不能估太多 */
-        int h = pattern_dist[p * 9 + (c0 % 3) * 3 + (c1 % 3)];
+        int h = pattern_dist[p * 9 + (c0 & 3) * 3 + (c1 & 3)];
         if (orient_dist[o] > h)
             h = orient_dist[o];
         if (h > exact[r])
@@ -439,8 +452,8 @@ static int verify(void)
         int len = solve(r);
         uint16_t cp = p, co = o;
         for (int i = 0; i < len; i++) {
-            int face = path[i] / 3;
-            int turns = path[i] % 3 + 1;
+            int face = path[i] >> 2;
+            int turns = (path[i] & 3) + 1;
             for (int t = 0; t < turns; t++) {
                 cp = permutation[face][cp];
                 co = orientation[face][co];
@@ -632,7 +645,7 @@ int main(int argc, char **argv)
     nodes = 0;
     int len = solve(rank_state(&state));
     for (int i = 0; i < len; i++)
-        printf("%s%s", i ? " " : "", move_names[path[i]]);
+    printf("%s%s", i ? " " : "", move_names[(path[i] >> 2) * 3 + (path[i] & 3)]);
     printf("\n");
     fprintf(stderr, "nodes: %u\n", nodes);
     return 0;
