@@ -262,6 +262,7 @@ static void build_orient_dist(void)
 }
 
 static uint8_t cubie_move[3][21];   // 跟著一個角：轉一下之後，新的編號
+static uint8_t pattern_dist[PERMUTATIONS * 9];   // 新小抄：位置 + 角 0、角 1 的方向
 
 static void build_cubie_move(void)
 {
@@ -363,6 +364,21 @@ static void build_exact_dist(void)
         }
     }
     free(queue);
+}
+
+static void build_pattern_dist(void)
+{
+    memset(pattern_dist, UINT8_MAX, sizeof pattern_dist);   // 先全部填 255（還沒填）
+    for (uint32_t r = 0; r < STATES; r++) {
+        state_t s;
+        unrank_state(r, &s);                        // 把編號 r 變回完整的方塊
+        uint16_t p = (uint16_t) (r / ORIENTATIONS);
+        int ori0 = cubie_coord(&s, 0) % 3;          // 角 0 的方向
+        int ori1 = cubie_coord(&s, 1) % 3;          // 角 1 的方向
+        uint32_t cell = p * 9 + ori0 * 3 + ori1;    // 這個狀態屬於哪一格
+        if (exact[r] < pattern_dist[cell])
+            pattern_dist[cell] = exact[r];
+    }
 }
 
 static int verify(void)
@@ -576,6 +592,21 @@ static int self_test(void)
 int main(int argc, char **argv)
 {
     state_t state;
+    if (argc == 2 && strcmp(argv[1], "--pattern") == 0) {
+        build_transitions();
+        build_exact_dist();
+        build_pattern_dist();
+        int unfilled = 0, max = 0;
+        for (int i = 0; i < PERMUTATIONS * 9; i++) {
+            if (pattern_dist[i] == UINT8_MAX) unfilled++;
+            else if (pattern_dist[i] > max) max = pattern_dist[i];
+        }
+        printf("pattern table: solved = %d, max = %d, unfilled = %d\n",
+               pattern_dist[0], max, unfilled);
+        free(exact);
+        return 0;
+    }
+
         if (argc == 2 && strcmp(argv[1], "--cubie") == 0) {
         build_cubie_move();
         int bad = 0;
