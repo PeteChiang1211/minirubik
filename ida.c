@@ -308,6 +308,38 @@ static int dfs(uint16_t p, uint16_t o, int g, int bound, int last_face)
     return 0;
 }
 
+static uint8_t *exact;   // 標準答案：每個狀態真正的最短步數
+
+static void build_exact_dist(void)
+{
+    exact = malloc(STATES);
+    uint32_t *queue = malloc((size_t) STATES * sizeof *queue);
+    uint32_t head = 0, tail = 1;
+
+    memset(exact, UINT8_MAX, STATES);
+    queue[0] = 0;
+    exact[0] = 0;
+
+    while (head < tail) {
+        uint32_t here = queue[head++];
+        uint16_t p = (uint16_t) (here / ORIENTATIONS);
+        uint16_t o = (uint16_t) (here % ORIENTATIONS);
+        for (int face = 0; face < 3; face++) {
+            uint16_t np = p, no = o;
+            for (int turn = 0; turn < 3; turn++) {
+                np = permutation[face][np];
+                no = orientation[face][no];
+                uint32_t there = (uint32_t) np * ORIENTATIONS + no;
+                if (exact[there] == UINT8_MAX) {
+                    exact[there] = exact[here] + 1;
+                    queue[tail++] = there;
+                }
+            }
+        }
+    }
+    free(queue);
+}
+
 static uint8_t *build_table(uint8_t *diameter)
 {
     uint8_t *toward_solved = malloc(STATES);
@@ -440,6 +472,19 @@ static int self_test(void)
 int main(int argc, char **argv)
 {
     state_t state;
+        if (argc == 2 && strcmp(argv[1], "--exact") == 0) {
+        build_transitions();
+        build_exact_dist();
+        uint32_t count[12] = {0}, unfilled = 0;
+        for (uint32_t r = 0; r < STATES; r++) {
+            if (exact[r] > 11) unfilled++;
+            else count[exact[r]]++;
+        }
+        for (int d = 0; d < 12; d++)
+            printf("distance %2d: %u\n", d, count[d]);
+        printf("unfilled: %u\n", unfilled);
+        return 0;
+    }
     if (argc != 2 || !parse_state(argv[1], &state)) {
         fprintf(stderr, "usage: %s PPPPPPPOOOOOOO\n", argv[0]);
         return 2;
