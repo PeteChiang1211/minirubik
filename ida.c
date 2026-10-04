@@ -261,6 +261,53 @@ static void build_orient_dist(void)
     }
 }
 
+static uint8_t path[12];      // 記錄目前走了哪些轉法
+static uint32_t nodes;        // 記錄總共檢查了幾個節點
+
+/* IDA* 的深度優先搜尋
+ * p, o:      目前狀態的位置編號、方向編號
+ * g:         已經走了幾步
+ * bound:     這一輪的步數上限
+ * last_face: 上一步轉的是哪一面（-1 代表還沒轉過）
+ * 回傳 1 代表找到解，0 代表這條路走不通 */
+static int dfs(uint16_t p, uint16_t o, int g, int bound, int last_face)
+{
+    nodes++;
+
+    /* 小抄估計：兩張表取較大值，保證不會高估 */
+    int h = perm_dist[p];
+    if (orient_dist[o] > h)
+        h = orient_dist[o];
+
+    /* 已走步數 + 至少還要幾步 > 上限，這條路不可能在上限內解完，放棄 */
+    if (g + h > bound)
+        return 0;
+
+    /* 小抄說還要 0 步，代表已經解好了 */
+    if (h == 0)
+        return 1;
+
+    for (int face = 0; face < 3; face++) {
+        /* 同一面連轉兩次一定不是最短解，跳過 */
+        if (face == last_face)
+            continue;
+
+        uint16_t np = p, no = o;
+        for (int turn = 0; turn < 3; turn++) {
+            /* 每多轉 90 度，就再查一次對照表：
+             * turn = 0 是轉 90 度，1 是 180 度，2 是 270 度 */
+            np = permutation[face][np];
+            no = orientation[face][no];
+            path[g] = (uint8_t) (face * 3 + turn);
+
+            /* 往下走一步：步數 +1，這一面變成下一層的「上一面」 */
+            if (dfs(np, no, g + 1, bound, face))
+                return 1;
+        }
+    }
+    return 0;
+}
+
 static uint8_t *build_table(uint8_t *diameter)
 {
     uint8_t *toward_solved = malloc(STATES);
@@ -392,30 +439,27 @@ static int self_test(void)
 
 int main(int argc, char **argv)
 {
-    build_transitions();              
-    build_perm_dist();
-
-    int unfilled = 0;
-    uint8_t max = 0;
-    for (int i = 0; i < PERMUTATIONS; i++) {
-        if (perm_dist[i] == UINT8_MAX)
-            unfilled++;
-        else if (perm_dist[i] > max)
-            max = perm_dist[i];
+    state_t state;
+    if (argc != 2 || !parse_state(argv[1], &state)) {
+        fprintf(stderr, "usage: %s PPPPPPPOOOOOOO\n", argv[0]);
+        return 2;
     }
-    printf("perm: solved=%d max=%d unfilled=%d\n", perm_dist[0], max, unfilled);
-    
 
+    build_transitions();
+    build_perm_dist();
     build_orient_dist();
 
-    unfilled = 0;
-    max = 0;
-    for (int i = 0; i < ORIENTATIONS; i++) {
-        if (orient_dist[i] == UINT8_MAX)
-            unfilled++;
-        else if (orient_dist[i] > max)
-            max = orient_dist[i];
-    }
-    printf("orient: solved=%d max=%d unfilled=%d\n", orient_dist[0], max, unfilled);
+    uint32_t rank = rank_state(&state);              // 把輸入的方塊轉成編號
+    uint16_t p = (uint16_t) (rank / ORIENTATIONS);   // 拆出位置編號
+    uint16_t o = (uint16_t) (rank % ORIENTATIONS);   // 拆出方向編號
+
+    int bound = 0;
+    while (!dfs(p, o, 0, bound, -1))                 // 這一輪沒找到解
+        bound = bound + 1;                                // 上限要變成多少？
+
+    for (int i = 0; i < bound; i++)                  // 印出解法
+        printf("%s%s", i ? " " : "", move_names[path[i]]);
+    printf("\n");
     return 0;
 }
+
