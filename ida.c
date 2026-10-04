@@ -235,6 +235,32 @@ static void build_perm_dist(void)
     }
 }
 
+static uint8_t orient_dist[ORIENTATIONS];
+
+static void build_orient_dist(void)
+{
+    uint16_t queue[ORIENTATIONS];
+    uint16_t head = 0, tail = 1;
+
+    memset(orient_dist, UINT8_MAX, ORIENTATIONS);   // 全部標成「還沒算過」
+    queue[0] = 0;                              // 從已解好開始
+    orient_dist[0] = 0 ;                          // 已解好是幾步？
+
+    while (head < tail) {
+        uint16_t here = queue[head++];
+        for (uint8_t face = 0; face < 3; ++face) {
+            uint16_t next = here;
+            for (uint8_t turn = 0; turn < 3; ++turn) {
+                next = orientation[face][next];   // 再轉 90 度
+                if (orient_dist[next] == UINT8_MAX) {
+                    orient_dist[next] =orient_dist[here] + 1;       // 新狀態是幾步？
+                    queue[tail++] = next;
+                }
+            }
+        }
+    }
+}
+
 static uint8_t *build_table(uint8_t *diameter)
 {
     uint8_t *toward_solved = malloc(STATES);
@@ -378,47 +404,18 @@ int main(int argc, char **argv)
             max = perm_dist[i];
     }
     printf("perm: solved=%d max=%d unfilled=%d\n", perm_dist[0], max, unfilled);
-    return 0;
+    
 
-    state_t state;
-    uint8_t diameter;
-    if (argc == 2 && !strcmp(argv[1], "--self-test")) {
-        if (!self_test()) {
-            fputs("self-test failed\n", stderr);
-            return 1;
-        }
-        uint8_t *table = build_table(&diameter);
-        if (!table) {
-            fputs("could not build complete state table\n", stderr);
-            return 1;
-        }
-        free(table);
-        if (diameter != 11) {
-            fputs("BFS check failed\n", stderr);
-            return 1;
-        }
-        puts("3674160 states; diameter 11");
-        return output_failed();
+    build_orient_dist();
+
+    unfilled = 0;
+    max = 0;
+    for (int i = 0; i < ORIENTATIONS; i++) {
+        if (orient_dist[i] == UINT8_MAX)
+            unfilled++;
+        else if (orient_dist[i] > max)
+            max = orient_dist[i];
     }
-    if (argc != 2 || !parse_state(argv[1], &state)) {
-        /* C99 5.1.2.2.1 lets argv[0] be null when argc is 0. */
-        fprintf(stderr, "usage: %s PPPPPPPOOOOOOO\n",
-                argc > 0 && argv[0] ? argv[0] : "solver");
-        return 2;
-    }
-    uint8_t *table = build_table(&diameter);
-    if (!table) {
-        fputs("could not build complete state table\n", stderr);
-        return 1;
-    }
-    const char *separator = "";
-    for (uint32_t rank = rank_state(&state); rank; rank = rank_state(&state)) {
-        uint8_t move = table[rank];
-        printf("%s%s", separator, move_names[move]);
-        separator = " ";
-        state = apply_move(state, move);
-    }
-    putchar('\n');
-    free(table);
-    return output_failed();
+    printf("orient: solved=%d max=%d unfilled=%d\n", orient_dist[0], max, unfilled);
+    return 0;
 }
