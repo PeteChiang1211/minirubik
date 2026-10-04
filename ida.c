@@ -340,6 +340,50 @@ static void build_exact_dist(void)
     free(queue);
 }
 
+static int verify(void)
+{
+    build_exact_dist();
+    uint32_t h1_bad = 0, h3_bad = 0;
+
+    for (uint32_t r = 0; r < STATES; r++) {
+        if (r % 500000 == 0)
+            fprintf(stderr, "checked %u states...\n", r);   // 顯示進度
+
+        uint16_t p = (uint16_t) (r / ORIENTATIONS);
+        uint16_t o = (uint16_t) (r % ORIENTATIONS);
+
+        /* H1：指南針不能估太多 */
+        int h = perm_dist[p];
+        if (orient_dist[o] > h)
+            h = orient_dist[o];
+        if (h > exact[r])
+            h1_bad++;
+
+        /* H3：用 IDA* 解這個房間 */
+        int len = 0;
+        while (!dfs(p, o, 0, len, -1))
+            len++;
+
+        /* 照著 path 真的走一遍 */
+        uint16_t cp = p, co = o;
+        for (int i = 0; i < len; i++) {
+            int face = path[i] / 3;
+            int turns = path[i] % 3 + 1;
+            for (int t = 0; t < turns; t++) {
+                cp = permutation[face][cp];
+                co = orientation[face][co];
+            }
+        }
+        if (len != exact[r] || cp != 0 || co != 0)
+            h3_bad++;
+    }
+
+    printf("H1 violations: %u\n", h1_bad);
+    printf("H3 failures:   %u\n", h3_bad);
+    free(exact);
+    return h1_bad || h3_bad;
+}
+
 static uint8_t *build_table(uint8_t *diameter)
 {
     uint8_t *toward_solved = malloc(STATES);
@@ -472,6 +516,12 @@ static int self_test(void)
 int main(int argc, char **argv)
 {
     state_t state;
+        if (argc == 2 && strcmp(argv[1], "--verify") == 0) {
+        build_transitions();
+        build_perm_dist();
+        build_orient_dist();
+        return verify();
+    }
         if (argc == 2 && strcmp(argv[1], "--exact") == 0) {
         build_transitions();
         build_exact_dist();
