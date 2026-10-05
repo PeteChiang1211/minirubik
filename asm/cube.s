@@ -150,8 +150,37 @@ print_end:
     li   a0, 10                    # 換行
     li   a7, 11
     ecall
-    li   a7, 10
-    ecall
+        # ==== T5：照著 path 從起點轉一遍，檢查有沒有回到已解好 ====
+    lhu  t3, 0(s1)                 # p = sp[0]（起點的位置編號）
+    lhu  t4, 24(s1)                # o = so[0]（起點的方向編號）
+    li   s10, 0                    # i = 0
+check_loop:
+    beq  s10, s3, check_end        # 走完 bound 步就結束
+    add  t0, s1, s10
+    lbu  t1, 72(t0)                # m = path[i]
+    srli t2, t1, 2                 # face
+    slli t2, t2, 2
+    add  t2, s7, t2                # &rows[face]
+    lw   a3, 0(t2)                 # perm 這一面的起點
+    lw   a4, 12(t2)                # orient 這一面的起點
+    andi t5, t1, 3                 # turn
+    addi t5, t5, 1                 # 轉 turn + 1 次 90 度
+turn_loop:
+    slli a6, t3, 1
+    add  a6, a3, a6
+    lhu  t3, 0(a6)                 # p 轉一下
+    slli a6, t4, 1
+    add  a6, a4, a6
+    lhu  t4, 0(a6)                 # o 轉一下
+    addi t5, t5, -1
+    bnez t5, turn_loop
+    addi s10, s10, 1
+    j    check_loop
+check_end:
+    or   a0, t3, t4                # p 和 o 都是 0，結果才會是 0
+    snez a0, a0                    # 不是 0 就變成 1
+    li   a7, 93
+    ecall                          # 用代碼 a0 結束
 
 # ==== search：C 的 search(bound)，找到回傳 a0 = 1 ====
 search:
