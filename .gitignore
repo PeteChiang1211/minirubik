@@ -3,3 +3,5 @@
 *.swp
 solver
 mini
+asm/*_full.s
+asm/test_*.s
