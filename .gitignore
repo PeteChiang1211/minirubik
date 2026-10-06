@@ -5,3 +5,4 @@ solver
 mini
 asm/*_full.s
 asm/test_*.s
+asm/*_cli.s
