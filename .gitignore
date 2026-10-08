@@ -9,3 +9,4 @@ asm/*_cli.s
 asm/gcc_ref_c.s
 asm/gcc_ref_all.s
 asm/gcc_ref.elf
+ida
