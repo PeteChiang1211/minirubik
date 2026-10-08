@@ -664,6 +664,21 @@ int main(int argc, char **argv)
         prepare();
         return verify();
     }
+    if (argc == 2 && strcmp(argv[1], "--dist") == 0) {
+        prepare();
+        /* exact[] is the full BFS distance table; 255 would mean unreached */
+        uint32_t count[256] = {0}, total = 0;
+        for (uint32_t r = 0; r < STATES; r++)
+            count[exact[r]]++;
+        for (int d = 0; d < 256; d++) {
+            if (count[d] == 0)
+                continue;
+            total += count[d];
+            printf("%3d %9u\n", d, count[d]);
+        }
+        printf("total %u of %u\n", total, (uint32_t) STATES);
+        return 0;
+    }
     if (argc == 2 && strcmp(argv[1], "--nodes") == 0) {
         prepare();
         measure();
